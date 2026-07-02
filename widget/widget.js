@@ -18,23 +18,25 @@ const CSS = `
 .fsk-wrap{display:grid;grid-template-columns:minmax(320px,420px) 1fr;gap:28px;align-items:start}
 @media(max-width:960px){.fsk-wrap{grid-template-columns:1fr}}
 .fsk-list{display:flex;flex-direction:column;gap:18px}
-.fsk-card{background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.12);padding:20px 22px;display:flex;gap:16px;opacity:0;transform:translateY(10px);animation:fsk-in .35s ease forwards}
+.fsk-card{background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.12);padding:20px 22px;display:grid;grid-template-columns:84px minmax(0,1fr) auto;grid-template-areas:"date body btns" "cars cars cars";column-gap:16px;opacity:0;transform:translateY(10px);animation:fsk-in .35s ease forwards}
 .fsk-card:nth-child(2){animation-delay:.05s}.fsk-card:nth-child(3){animation-delay:.1s}.fsk-card:nth-child(4){animation-delay:.15s}.fsk-card:nth-child(5){animation-delay:.2s}
 @keyframes fsk-in{to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.fsk-card{animation:none;opacity:1;transform:none}}
-.fsk-date{flex:0 0 84px;text-align:center;padding-top:2px}
+.fsk-date{grid-area:date;text-align:center;padding-top:2px}
 .fsk-date svg{width:34px;height:34px;display:block;margin:0 auto 6px}
 .fsk-date b{display:block;font-size:15px;line-height:1.25}
 .fsk-date small{color:var(--grey);font-size:12px}
-.fsk-body{flex:1;min-width:0}
-.fsk-title{font-size:19px;font-weight:700;margin:0 0 10px}
-.fsk-cars-h{font-weight:700;font-size:14px;margin:0 0 6px}
-.fsk-cars{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0;list-style:none}
-.fsk-cars li{white-space:nowrap;font-size:12.5px;font-weight:600;color:var(--ink);background:#f6f6f6;border:1px solid #e6e6e6;border-radius:999px;padding:5px 12px;line-height:1.2}
-.fsk-cars li:before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:7px;vertical-align:1px}
-.fsk-time{font-size:13px;color:var(--grey);margin:-6px 0 10px}
-.fsk-btns{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
-@media(max-width:520px){.fsk-card{flex-direction:column}.fsk-date{display:flex;gap:10px;align-items:center;text-align:left;flex-basis:auto}.fsk-date svg{margin:0}}
+.fsk-body{grid-area:body;min-width:0}
+.fsk-cars-zone{grid-area:cars;min-width:0;margin-top:10px}
+.fsk-cars-zone .fsk-cars{margin-bottom:0!important}
+.fsk-title{font-size:19px!important;line-height:1.3!important;font-weight:700;margin:0 0 10px!important;padding:0!important}
+.fsk-cars-h{font-weight:700;font-size:13px!important;line-height:1.3!important;margin:0 0 5px!important}
+.fsk-cars{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;gap:5px;margin:0 0 12px!important;padding:0!important;list-style:none!important}
+.fsk-cars li{display:inline-flex!important;align-items:center;width:auto!important;white-space:nowrap;font-size:11.5px!important;font-weight:600;color:var(--ink);background:#f6f6f6;border:1px solid #e6e6e6;border-radius:999px;padding:3px 10px!important;margin:0!important;line-height:1.3!important;list-style:none!important}
+.fsk-cars li:before{content:''!important;display:inline-block;flex:0 0 auto;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:6px}
+.fsk-time{font-size:13px!important;line-height:1.4!important;color:var(--grey);margin:-6px 0 10px!important}
+.fsk-btns{grid-area:btns;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+@media(max-width:520px){.fsk-card{grid-template-columns:1fr;grid-template-areas:"date" "body" "cars" "btns";row-gap:10px}.fsk-date{display:flex;gap:10px;align-items:center;text-align:left;padding-top:0}.fsk-date svg{margin:0}.fsk-cars-zone{margin-top:0}.fsk-title{margin-bottom:4px!important}}
 .fsk-btn{display:inline-block;font-weight:700;font-size:13px;letter-spacing:.4px;padding:9px 18px;cursor:pointer;text-transform:uppercase;border:2px solid var(--red);background:#fff;color:var(--red);transition:transform .15s ease,box-shadow .15s ease;text-decoration:none;font-family:inherit}
 .fsk-btn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(225,6,0,.25)}
 .fsk-btn--solid{background:var(--red);color:#fff}
@@ -282,9 +284,11 @@ function renderList(container) {
       <div class="fsk-body">
         <h3 class="fsk-title">${esc(ev.title)}</h3>
         ${ev.time_text ? `<p class="fsk-time">Godzina: ${esc(ev.time_text)}</p>` : ''}
-        ${cars.length ? `<p class="fsk-cars-h">Dostępne Samochody:</p>
-        <ul class="fsk-cars">${cars.map((c) => `<li>${esc(c.name)}</li>`).join('')}</ul>` : ''}
       </div>
+      ${cars.length ? `<div class="fsk-cars-zone">
+        <p class="fsk-cars-h">Dostępne Samochody:</p>
+        <ul class="fsk-cars">${cars.map((c) => `<li>${esc(c.name)}</li>`).join('')}</ul>
+      </div>` : ''}
       <div class="fsk-btns">
         <button class="fsk-btn" data-act="details">SZCZEGÓŁY</button>
         <button class="fsk-btn fsk-btn--solid" data-act="book">REZERWUJ</button>
