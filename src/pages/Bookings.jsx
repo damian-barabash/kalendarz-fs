@@ -14,8 +14,11 @@ const FILTERS = [
 export default function Bookings({ onPendingCount }) {
   const [bookings, setBookings] = useState(cache)
   const [filter, setFilter] = useState('pending')
+  const [dateFilter, setDateFilter] = useState('all') // event_date lub 'all'
   const [reject, setReject] = useState(null) // booking do odrzucenia
   const [rejectNote, setRejectNote] = useState('')
+  const [confirm, setConfirm] = useState(null) // booking do potwierdzenia / zmiany godziny
+  const [confirmTime, setConfirmTime] = useState('')
   const [del, setDel] = useState(null)
   const toast = useToast()
 
@@ -31,17 +34,38 @@ export default function Bookings({ onPendingCount }) {
     onPendingCount((bookings || []).filter((b) => b.status === 'pending').length)
   }, [bookings, onPendingCount])
 
+  // daty terminów obecne w rezerwacjach (dla filtra)
+  const dates = useMemo(() => {
+    const seen = new Map()
+    for (const b of bookings || []) {
+      const d = b.events?.event_date
+      if (d) seen.set(d, (seen.get(d) || 0) + 1)
+    }
+    return [...seen.entries()].sort((a, z) => a[0].localeCompare(z[0]))
+  }, [bookings])
+
   const shown = useMemo(() => {
     if (!bookings) return null
-    return filter === 'all' ? bookings : bookings.filter((b) => b.status === filter)
-  }, [bookings, filter])
+    let list = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter)
+    if (dateFilter !== 'all') list = list.filter((b) => b.events?.event_date === dateFilter)
+    return list
+  }, [bookings, filter, dateFilter])
 
   // optymistycznie: status zmienia się od razu, e-mail leci w tle
-  const decide = (b, status, note = '') => {
+  const decide = (b, status, note = '', customTime) => {
     const prev = bookings
-    setBookings(bookings.map((x) => (x.id === b.id ? { ...x, status, admin_note: note } : x)))
+    setBookings(bookings.map((x) => (x.id === b.id
+      ? {
+          ...x,
+          status,
+          admin_note: note,
+          ...(customTime !== undefined
+            ? { custom_time: customTime.trim() && customTime.trim() !== (b.events?.time_text || '').trim() ? customTime.trim() : null }
+            : {}),
+        }
+      : x)))
     cache = null
-    api.decideBooking(b.id, status, note)
+    api.decideBooking(b.id, status, note, customTime)
       .then((r) => {
         if (r.emailSent) {
           toast(status === 'confirmed'
@@ -74,6 +98,11 @@ export default function Bookings({ onPendingCount }) {
     return c
   }, [bookings])
 
+  const openConfirm = (b) => {
+    setConfirm(b)
+    setConfirmTime(b.custom_time || b.events?.time_text || '')
+  }
+
   return (
     <>
       <div className="page-h"><h1>Rezerwacje</h1></div>
@@ -85,6 +114,19 @@ export default function Bookings({ onPendingCount }) {
             {f.label} ({counts[f.id]})
           </button>
         ))}
+        {dates.length > 0 && (
+          <select
+            className={`date-filter${dateFilter !== 'all' ? ' on' : ''}`}
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            aria-label="Filtr po dacie terminu"
+          >
+            <option value="all">Wszystkie daty</option>
+            {dates.map(([d, n]) => (
+              <option key={d} value={d}>{plDate(d)} ({n})</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {!shown && <div className="spin" />}
@@ -92,7 +134,9 @@ export default function Bookings({ onPendingCount }) {
       {shown && shown.length === 0 && (
         <div className="empty">
           <b>Brak rezerwacji</b>
-          {filter === 'pending' ? 'Nowe zgłoszenia pojawią się tutaj automatycznie.' : 'Nic tu jeszcze nie ma.'}
+          {dateFilter !== 'all'
+            ? 'Brak rezerwacji dla wybranej daty — zmień filtr.'
+            : filter === 'pending' ? 'Nowe zgłoszenia pojawią się tutaj automatycznie.' : 'Nic tu jeszcze nie ma.'}
         </div>
       )}
 
@@ -114,7 +158,9 @@ export default function Bookings({ onPendingCount }) {
               </div>
               <div className="small muted">
                 {b.events?.title} — {b.events?.track && `${b.events.track}, `}{plDate(b.events?.event_date)}
-                {b.events?.time_text && `, ${b.events.time_text}`}
+                {b.custom_time
+                  ? <>, <b style={{ color: 'var(--warn)' }}>{b.custom_time} (godzina indywidualna)</b></>
+                  : b.events?.time_text && `, ${b.events.time_text}`}
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>
                 Zgłoszono: {plDateTime(b.created_at)}
@@ -124,7 +170,10 @@ export default function Bookings({ onPendingCount }) {
             </div>
             <div className="row" style={{ gap: 8 }}>
               {b.status !== 'confirmed' && (
-                <button className="btn sm" onClick={() => decide(b, 'confirmed')}>Potwierdź</button>
+                <button className="btn sm" onClick={() => openConfirm(b)}>Potwierdź</button>
+              )}
+              {b.status === 'confirmed' && (
+                <button className="btn ghost sm" onClick={() => openConfirm(b)}>Zmień godzinę</button>
               )}
               {b.status !== 'rejected' && (
                 <button className="btn ghost sm" onClick={() => { setReject(b); setRejectNote('') }}>Odrzuć</button>
@@ -134,6 +183,42 @@ export default function Bookings({ onPendingCount }) {
           </div>
         </div>
       ))}
+
+      {confirm && (
+        <Modal
+          title={confirm.status === 'confirmed' ? 'Zmień godzinę rezerwacji' : 'Potwierdź rezerwację'}
+          onClose={() => setConfirm(null)}
+        >
+          <p className="small muted" style={{ marginTop: 0 }}>
+            Sprawdź, czy wszystkie dane są poprawne — klient otrzyma e-mail
+            {confirm.status === 'confirmed' ? ' z nową godziną.' : ' z potwierdzeniem.'}
+          </p>
+          <div className="confirm-data">
+            <div><span>Klient</span><b>{confirm.name}</b></div>
+            <div><span>E-mail</span><b>{confirm.email}</b></div>
+            <div><span>Telefon</span><b>{confirm.phone}</b></div>
+            {confirm.voucher_code && <div><span>Voucher</span><b>{confirm.voucher_code}</b></div>}
+            <div><span>Termin</span><b>{confirm.events?.title} — {confirm.events?.track && `${confirm.events.track}, `}{plDate(confirm.events?.event_date)}</b></div>
+          </div>
+          <div className="field" style={{ marginTop: 14 }}>
+            <label>Godzina dla tego klienta</label>
+            <input
+              value={confirmTime}
+              onChange={(e) => setConfirmTime(e.target.value)}
+              placeholder="np. 15:00"
+            />
+            <div className="hint">
+              Godzina terminu: {confirm.events?.time_text || '—'}. Zmiana dotyczy tylko tej rezerwacji i trafi do e-maila jako {'{{godzina}}'}.
+            </div>
+          </div>
+          <div className="modal-btns">
+            <button className="btn grey" onClick={() => setConfirm(null)}>Anuluj</button>
+            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime); setConfirm(null) }}>
+              {confirm.status === 'confirmed' ? 'Zapisz i wyślij e-mail' : 'Potwierdź i wyślij e-mail'}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {reject && (
         <Modal title="Odrzuć rezerwację" onClose={() => setReject(null)}>
