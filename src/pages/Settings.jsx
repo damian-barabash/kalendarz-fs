@@ -119,6 +119,11 @@ export default function Settings() {
           <input value={s.email_from || ''} onChange={(e) => set('email_from', e.target.value)} />
           <div className="hint">Format: Nazwa &lt;rezerwacja@fastlinesupercars.pl&gt;. Domena musi być zweryfikowana w Resend.</div>
         </div>
+        <div className="field">
+          <label>Powiadomienia o nowych rezerwacjach</label>
+          <input placeholder="adres@email.pl" value={s.notify_email || ''} onChange={(e) => set('notify_email', e.target.value)} />
+          <div className="hint">Na ten adres przyjdzie e-mail przy każdej nowej rezerwacji. Zostaw puste, aby wyłączyć powiadomienia.</div>
+        </div>
         <div className="row">
           <input
             style={{ flex: 1, minWidth: 200, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--ink)', padding: '9px 12px', borderRadius: 3 }}
