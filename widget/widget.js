@@ -29,7 +29,9 @@ const CSS = `
 .fsk-body{flex:1;min-width:0}
 .fsk-title{font-size:19px;font-weight:700;margin:0 0 10px}
 .fsk-cars-h{font-weight:700;font-size:14px;margin:0 0 6px}
-.fsk-cars{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;margin:0 0 14px;padding:0;list-style:none;font-size:13.5px}
+.fsk-cars{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding:0;list-style:none}
+.fsk-cars li{white-space:nowrap;font-size:12.5px;font-weight:600;color:var(--ink);background:#f6f6f6;border:1px solid #e6e6e6;border-radius:999px;padding:5px 12px;line-height:1.2}
+.fsk-cars li:before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--red);margin-right:7px;vertical-align:1px}
 .fsk-time{font-size:13px;color:var(--grey);margin:-6px 0 10px}
 .fsk-btns{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 @media(max-width:520px){.fsk-card{flex-direction:column}.fsk-date{display:flex;gap:10px;align-items:center;text-align:left;flex-basis:auto}.fsk-date svg{margin:0}}
