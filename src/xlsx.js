@@ -20,6 +20,7 @@ const COLS = [
   { header: 'Data', width: 18, key: 'data' },
   { header: 'Godzina', width: 12, key: 'godzina' },
   { header: 'Samochód', width: 26, key: 'car' },
+  { header: 'Okrążenia', width: 11, key: 'laps' },
   { header: 'Status', width: 15, key: 'status' },
   { header: 'Zgłoszono', width: 20, key: 'created' },
   { header: 'Uwaga', width: 30, key: 'note' },
@@ -84,7 +85,7 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
     cell.value = c.header
     cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLACK } }
-    cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' ? 'center' : 'left', wrapText: true }
+    cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' || c.key === 'laps' ? 'center' : 'left', wrapText: true }
     cell.border = { bottom: { style: 'medium', color: { argb: RED } } }
   })
   headRow.height = 26
@@ -104,6 +105,7 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
       data: ev.event_date ? plDate(ev.event_date) : '',
       godzina: b.custom_time || ev.time_text || '',
       car: b.car_name || '',
+      laps: b.laps || '',
       status: STATUS_PL[b.status] || b.status || '',
       created: b.created_at ? plDateTime(b.created_at) : '',
       note: b.admin_note || '',
@@ -112,7 +114,7 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
       const cell = r.getCell(i + 1)
       cell.value = vals[c.key]
       cell.font = { name: 'Arial', size: 10, color: { argb: 'FF1A1A1A' } }
-      cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' ? 'center' : 'left', wrapText: c.key === 'note' || c.key === 'termin' }
+      cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' || c.key === 'laps' ? 'center' : 'left', wrapText: c.key === 'note' || c.key === 'termin' }
       cell.border = {
         bottom: { style: 'thin', color: { argb: BORDER } },
         right: { style: 'thin', color: { argb: BORDER } },
@@ -120,7 +122,8 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
       if (idx % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREY_BG } }
     })
     // status na kolor
-    const st = r.getCell(11)
+    const stCol = COLS.findIndex((c) => c.key === 'status') + 1
+    const st = r.getCell(stCol)
     st.font = { name: 'Arial', size: 10, bold: true, color: { argb: STATUS_COLOR[b.status] || 'FF1A1A1A' } }
   })
 

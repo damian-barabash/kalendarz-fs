@@ -21,6 +21,7 @@ export default function Bookings({ onPendingCount }) {
   const [confirm, setConfirm] = useState(null) // booking do potwierdzenia / zmiany godziny
   const [confirmTime, setConfirmTime] = useState('')
   const [confirmCar, setConfirmCar] = useState('') // car_id wybrany dla klienta
+  const [confirmLaps, setConfirmLaps] = useState('') // ilość okrążeń (1..5)
   const [exporting, setExporting] = useState(false)
   const [del, setDel] = useState(null)
   const toast = useToast()
@@ -55,12 +56,17 @@ export default function Bookings({ onPendingCount }) {
   }, [bookings, filter, dateFilter])
 
   // optymistycznie: status zmienia się od razu, e-mail leci w tle
-  const decide = (b, status, note = '', customTime, carId) => {
+  const decide = (b, status, note = '', customTime, carId, laps) => {
     const prev = bookings
     let carPatch = {}
     if (carId !== undefined) {
       const cn = carId ? ((b.available_cars || []).find((c) => c.id === carId)?.name || null) : null
       carPatch = { car_id: carId || null, car_name: cn }
+    }
+    let lapsPatch = {}
+    if (laps !== undefined) {
+      const n = parseInt(laps, 10)
+      lapsPatch = { laps: n >= 1 && n <= 5 ? n : null }
     }
     setBookings(bookings.map((x) => (x.id === b.id
       ? {
@@ -71,10 +77,11 @@ export default function Bookings({ onPendingCount }) {
             ? { custom_time: customTime.trim() && customTime.trim() !== (b.events?.time_text || '').trim() ? customTime.trim() : null }
             : {}),
           ...carPatch,
+          ...lapsPatch,
         }
       : x)))
     cache = null
-    api.decideBooking(b.id, status, note, customTime, carId)
+    api.decideBooking(b.id, status, note, customTime, carId, laps)
       .then((r) => {
         if (r.emailSent) {
           toast(status === 'confirmed'
@@ -112,6 +119,7 @@ export default function Bookings({ onPendingCount }) {
     setConfirmTime(b.custom_time || b.events?.time_text || '')
     const avail = b.available_cars || []
     setConfirmCar(b.car_id || (avail.length === 1 ? avail[0].id : ''))
+    setConfirmLaps(b.laps ? String(b.laps) : '')
   }
 
   const doExport = async () => {
@@ -198,6 +206,7 @@ export default function Bookings({ onPendingCount }) {
                   ? <>, <b style={{ color: 'var(--warn)' }}>{b.custom_time} (godzina indywidualna)</b></>
                   : b.events?.time_text && `, ${b.events.time_text}`}
                 {b.car_name && <> · Samochód: <b style={{ color: 'var(--ink)' }}>{b.car_name}</b></>}
+                {b.laps && <> · Okrążenia: <b style={{ color: 'var(--ink)' }}>{b.laps}</b></>}
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>
                 Zgłoszono: {plDateTime(b.created_at)}
@@ -254,6 +263,18 @@ export default function Bookings({ onPendingCount }) {
             </div>
           </div>
           <div className="field" style={{ marginTop: 14 }}>
+            <label>Ilość okrążeń</label>
+            <select value={confirmLaps} onChange={(e) => setConfirmLaps(e.target.value)}>
+              <option value="">— bez wyboru —</option>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <div className="hint">
+              Liczba okrążeń trafi do e-maila klienta jako {'{{okrazenia}}'}.
+            </div>
+          </div>
+          <div className="field" style={{ marginTop: 14 }}>
             <label>Godzina dla tego klienta</label>
             <input
               value={confirmTime}
@@ -266,7 +287,7 @@ export default function Bookings({ onPendingCount }) {
           </div>
           <div className="modal-btns">
             <button className="btn grey" onClick={() => setConfirm(null)}>Anuluj</button>
-            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime, confirmCar); setConfirm(null) }}>
+            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime, confirmCar, confirmLaps); setConfirm(null) }}>
               {confirm.status === 'confirmed' ? 'Zapisz i wyślij e-mail' : 'Potwierdź i wyślij e-mail'}
             </button>
           </div>

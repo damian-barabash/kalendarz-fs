@@ -202,7 +202,7 @@ function openBooking(ev) {
     <div class="fsk-field"><label>Imię i nazwisko <i>*</i></label><input name="name" autocomplete="name"></div>
     <div class="fsk-field"><label>Email <i>*</i></label><input name="email" type="email" autocomplete="email"></div>
     <div class="fsk-field"><label>Telefon <i>*</i></label><input name="phone" type="tel" autocomplete="tel"></div>
-    <div class="fsk-field"><label>Kod Vouchera</label><input name="voucher_code" autocomplete="off"></div>
+    <div class="fsk-field"><label>Kod Vouchera <i>*</i></label><input name="voucher_code" autocomplete="off"></div>
     <input name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-5000px" aria-hidden="true">
     <button type="submit" class="fsk-btn fsk-btn--solid fsk-send">WYŚLIJ</button>
   `
@@ -222,6 +222,7 @@ function openBooking(ev) {
     mark(f.name, vals.name.length < 2)
     mark(f.email, !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(vals.email))
     mark(f.phone, vals.phone.length < 5)
+    mark(f.voucher_code, vals.voucher_code.length < 1)
     if (bad) return
 
     // optymistycznie: od razu ekran sukcesu, request leci w tle
