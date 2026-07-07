@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, session } from '../api.js'
 import { Confirm, useToast } from '../ui.jsx'
 
-const PLACEHOLDERS = '{{imie}}, {{tytul}}, {{tor}}, {{data}}, {{godzina}}, {{godzina_linia}}, {{uwaga}}'
+const PLACEHOLDERS = '{{imie}}, {{tytul}}, {{tor}}, {{data}}, {{godzina}}, {{godzina_linia}}, {{samochod}}, {{samochod_linia}}, {{uwaga}}'
 
 export default function Settings() {
   const [s, setS] = useState(null)

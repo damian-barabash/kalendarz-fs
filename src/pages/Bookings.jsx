@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, plDate, plDateTime } from '../api.js'
+import { exportBookingsXlsx } from '../xlsx.js'
 import { Modal, Confirm, useToast } from '../ui.jsx'
 
 let cache = null // instant render przy powrocie na zakładkę
@@ -19,6 +20,8 @@ export default function Bookings({ onPendingCount }) {
   const [rejectNote, setRejectNote] = useState('')
   const [confirm, setConfirm] = useState(null) // booking do potwierdzenia / zmiany godziny
   const [confirmTime, setConfirmTime] = useState('')
+  const [confirmCar, setConfirmCar] = useState('') // car_id wybrany dla klienta
+  const [exporting, setExporting] = useState(false)
   const [del, setDel] = useState(null)
   const toast = useToast()
 
@@ -52,8 +55,13 @@ export default function Bookings({ onPendingCount }) {
   }, [bookings, filter, dateFilter])
 
   // optymistycznie: status zmienia się od razu, e-mail leci w tle
-  const decide = (b, status, note = '', customTime) => {
+  const decide = (b, status, note = '', customTime, carId) => {
     const prev = bookings
+    let carPatch = {}
+    if (carId !== undefined) {
+      const cn = carId ? ((b.available_cars || []).find((c) => c.id === carId)?.name || null) : null
+      carPatch = { car_id: carId || null, car_name: cn }
+    }
     setBookings(bookings.map((x) => (x.id === b.id
       ? {
           ...x,
@@ -62,10 +70,11 @@ export default function Bookings({ onPendingCount }) {
           ...(customTime !== undefined
             ? { custom_time: customTime.trim() && customTime.trim() !== (b.events?.time_text || '').trim() ? customTime.trim() : null }
             : {}),
+          ...carPatch,
         }
       : x)))
     cache = null
-    api.decideBooking(b.id, status, note, customTime)
+    api.decideBooking(b.id, status, note, customTime, carId)
       .then((r) => {
         if (r.emailSent) {
           toast(status === 'confirmed'
@@ -101,6 +110,24 @@ export default function Bookings({ onPendingCount }) {
   const openConfirm = (b) => {
     setConfirm(b)
     setConfirmTime(b.custom_time || b.events?.time_text || '')
+    const avail = b.available_cars || []
+    setConfirmCar(b.car_id || (avail.length === 1 ? avail[0].id : ''))
+  }
+
+  const doExport = async () => {
+    if (!shown || !shown.length || exporting) return
+    setExporting(true)
+    try {
+      await exportBookingsXlsx(shown, {
+        filterLabel: FILTERS.find((f) => f.id === filter)?.label,
+        dateLabel: dateFilter === 'all' ? 'Wszystkie daty' : plDate(dateFilter),
+        dateSlug: dateFilter === 'all' ? 'wszystkie' : dateFilter,
+      })
+    } catch {
+      toast('Nie udało się wygenerować pliku Excel.', 'err')
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -127,6 +154,15 @@ export default function Bookings({ onPendingCount }) {
             ))}
           </select>
         )}
+        <button
+          className="btn ghost sm"
+          style={{ marginLeft: 'auto' }}
+          onClick={doExport}
+          disabled={!shown || !shown.length || exporting}
+          title="Pobierz widoczne rezerwacje jako plik Excel"
+        >
+          {exporting ? 'Generowanie…' : `Pobierz Excel${shown ? ` (${shown.length})` : ''}`}
+        </button>
       </div>
 
       {!shown && <div className="spin" />}
@@ -161,6 +197,7 @@ export default function Bookings({ onPendingCount }) {
                 {b.custom_time
                   ? <>, <b style={{ color: 'var(--warn)' }}>{b.custom_time} (godzina indywidualna)</b></>
                   : b.events?.time_text && `, ${b.events.time_text}`}
+                {b.car_name && <> · Samochód: <b style={{ color: 'var(--ink)' }}>{b.car_name}</b></>}
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>
                 Zgłoszono: {plDateTime(b.created_at)}
@@ -201,6 +238,22 @@ export default function Bookings({ onPendingCount }) {
             <div><span>Termin</span><b>{confirm.events?.title} — {confirm.events?.track && `${confirm.events.track}, `}{plDate(confirm.events?.event_date)}</b></div>
           </div>
           <div className="field" style={{ marginTop: 14 }}>
+            <label>Samochód dla tego klienta</label>
+            {(confirm.available_cars || []).length > 0 ? (
+              <select value={confirmCar} onChange={(e) => setConfirmCar(e.target.value)}>
+                <option value="">— bez wyboru —</option>
+                {(confirm.available_cars || []).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="hint" style={{ marginTop: 0 }}>Brak samochodów przypisanych do tego terminu — dodaj je w zakładce „Terminy”.</div>
+            )}
+            <div className="hint">
+              Wybrany samochód trafi do e-maila klienta jako {'{{samochod}}'}.
+            </div>
+          </div>
+          <div className="field" style={{ marginTop: 14 }}>
             <label>Godzina dla tego klienta</label>
             <input
               value={confirmTime}
@@ -213,7 +266,7 @@ export default function Bookings({ onPendingCount }) {
           </div>
           <div className="modal-btns">
             <button className="btn grey" onClick={() => setConfirm(null)}>Anuluj</button>
-            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime); setConfirm(null) }}>
+            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime, confirmCar); setConfirm(null) }}>
               {confirm.status === 'confirmed' ? 'Zapisz i wyślij e-mail' : 'Potwierdź i wyślij e-mail'}
             </button>
           </div>
