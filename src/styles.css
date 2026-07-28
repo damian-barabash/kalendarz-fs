@@ -176,6 +176,30 @@ input, textarea, select { font-family: inherit; }
 }
 .tabs .date-filter.on { border-color: var(--red); color: var(--ink); }
 .tabs .date-filter:focus { outline: none; border-color: var(--red); }
+.tabs .arch-toggle { margin-left: 12px; border-style: dashed; }
+.tabs .arch-toggle.on { background: var(--surface2); border: 1px solid var(--warn); color: var(--warn); }
+
+.chip.archived { color: var(--muted); border-color: var(--border); background: var(--surface2); }
+
+/* wiersze samochodów w modalu potwierdzenia */
+.car-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.car-row select { flex: 1; min-width: 0; }
+.car-row select.laps { flex: 0 0 132px; }
+.car-row .car-rm {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  width: 34px;
+  height: 38px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.car-row .car-rm:hover { color: var(--red); border-color: var(--red); }
+.car-row .car-rm:disabled { opacity: .35; cursor: default; }
 
 /* ---------- dane rezerwacji w modalu potwierdzenia ---------- */
 .confirm-data {

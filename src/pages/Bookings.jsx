@@ -12,19 +12,37 @@ const FILTERS = [
   { id: 'all', label: 'Wszystkie' },
 ]
 
+const MAX_CARS = 4
+
+function todayISO() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// termin przeszły = data terminu wcześniejsza niż dziś → rezerwacja w archiwum
+const isArchived = (b, today) => !!b.events?.event_date && b.events.event_date < today
+
+const carsText = (b) =>
+  (b.selected_cars || [])
+    .filter((c) => c.name)
+    .map((c) => (c.laps ? `${c.name} — ${c.laps} okr.` : c.name))
+    .join(', ')
+
 export default function Bookings({ onPendingCount }) {
   const [bookings, setBookings] = useState(cache)
+  const [archive, setArchive] = useState(false)
   const [filter, setFilter] = useState('pending')
   const [dateFilter, setDateFilter] = useState('all') // event_date lub 'all'
   const [reject, setReject] = useState(null) // booking do odrzucenia
   const [rejectNote, setRejectNote] = useState('')
   const [confirm, setConfirm] = useState(null) // booking do potwierdzenia / zmiany godziny
   const [confirmTime, setConfirmTime] = useState('')
-  const [confirmCar, setConfirmCar] = useState('') // car_id wybrany dla klienta
-  const [confirmLaps, setConfirmLaps] = useState('') // ilość okrążeń (1..5)
+  const [confirmCars, setConfirmCars] = useState([]) // [{carId, laps}] max 4
   const [exporting, setExporting] = useState(false)
   const [del, setDel] = useState(null)
   const toast = useToast()
+  const today = todayISO()
 
   const reload = () =>
     api.listBookings().then((r) => {
@@ -34,39 +52,61 @@ export default function Bookings({ onPendingCount }) {
 
   useEffect(() => { reload() }, [])
 
+  // badge w nagłówku liczy tylko aktualne (nie-archiwalne) oczekujące
   useEffect(() => {
-    onPendingCount((bookings || []).filter((b) => b.status === 'pending').length)
-  }, [bookings, onPendingCount])
+    onPendingCount((bookings || []).filter((b) => b.status === 'pending' && !isArchived(b, today)).length)
+  }, [bookings, onPendingCount, today])
 
-  // daty terminów obecne w rezerwacjach (dla filtra)
+  const inMode = useMemo(
+    () => (bookings || []).filter((b) => isArchived(b, today) === archive),
+    [bookings, archive, today],
+  )
+
+  // daty terminów obecne w rezerwacjach bieżącego widoku (dla filtra)
   const dates = useMemo(() => {
     const seen = new Map()
-    for (const b of bookings || []) {
+    for (const b of inMode) {
       const d = b.events?.event_date
       if (d) seen.set(d, (seen.get(d) || 0) + 1)
     }
     return [...seen.entries()].sort((a, z) => a[0].localeCompare(z[0]))
-  }, [bookings])
+  }, [inMode])
 
   const shown = useMemo(() => {
     if (!bookings) return null
-    let list = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter)
+    let list = filter === 'all' ? inMode : inMode.filter((b) => b.status === filter)
     if (dateFilter !== 'all') list = list.filter((b) => b.events?.event_date === dateFilter)
     return list
-  }, [bookings, filter, dateFilter])
+  }, [bookings, inMode, filter, dateFilter])
+
+  const archiveCount = useMemo(
+    () => (bookings || []).filter((b) => isArchived(b, today)).length,
+    [bookings, today],
+  )
 
   // optymistycznie: status zmienia się od razu, e-mail leci w tle
-  const decide = (b, status, note = '', customTime, carId, laps) => {
+  const decide = (b, status, note = '', customTime, cars) => {
     const prev = bookings
     let carPatch = {}
-    if (carId !== undefined) {
-      const cn = carId ? ((b.available_cars || []).find((c) => c.id === carId)?.name || null) : null
-      carPatch = { car_id: carId || null, car_name: cn }
-    }
-    let lapsPatch = {}
-    if (laps !== undefined) {
-      const n = parseInt(laps, 10)
-      lapsPatch = { laps: n >= 1 && n <= 5 ? n : null }
+    if (cars !== undefined) {
+      const avail = b.available_cars || []
+      const sel = cars
+        .filter((c) => c.carId)
+        .slice(0, MAX_CARS)
+        .map((c) => {
+          const n = parseInt(c.laps, 10)
+          return {
+            car_id: c.carId,
+            name: avail.find((a) => a.id === c.carId)?.name || (b.selected_cars || []).find((s) => s.car_id === c.carId)?.name || null,
+            laps: n >= 1 && n <= 5 ? n : null,
+          }
+        })
+      carPatch = {
+        selected_cars: sel,
+        car_name: sel.map((c) => c.name).filter(Boolean).join(', ') || null,
+        car_id: sel[0]?.car_id || null,
+        laps: sel[0]?.laps ?? null,
+      }
     }
     setBookings(bookings.map((x) => (x.id === b.id
       ? {
@@ -77,11 +117,10 @@ export default function Bookings({ onPendingCount }) {
             ? { custom_time: customTime.trim() && customTime.trim() !== (b.events?.time_text || '').trim() ? customTime.trim() : null }
             : {}),
           ...carPatch,
-          ...lapsPatch,
         }
       : x)))
     cache = null
-    api.decideBooking(b.id, status, note, customTime, carId, laps)
+    api.decideBooking(b.id, status, note, customTime, cars)
       .then((r) => {
         if (r.emailSent) {
           toast(status === 'confirmed'
@@ -109,17 +148,34 @@ export default function Bookings({ onPendingCount }) {
   }
 
   const counts = useMemo(() => {
-    const c = { pending: 0, confirmed: 0, rejected: 0, all: (bookings || []).length }
-    for (const b of bookings || []) c[b.status]++
+    const c = { pending: 0, confirmed: 0, rejected: 0, all: inMode.length }
+    for (const b of inMode) c[b.status]++
     return c
-  }, [bookings])
+  }, [inMode])
 
   const openConfirm = (b) => {
     setConfirm(b)
     setConfirmTime(b.custom_time || b.events?.time_text || '')
     const avail = b.available_cars || []
-    setConfirmCar(b.car_id || (avail.length === 1 ? avail[0].id : ''))
-    setConfirmLaps(b.laps ? String(b.laps) : '')
+    const sel = (b.selected_cars || [])
+      .filter((c) => c.car_id)
+      .slice(0, MAX_CARS)
+      .map((c) => ({ carId: c.car_id, laps: c.laps ? String(c.laps) : '' }))
+    if (sel.length) setConfirmCars(sel)
+    else setConfirmCars([{ carId: avail.length === 1 ? avail[0].id : '', laps: '' }])
+  }
+
+  const setCarRow = (i, patch) =>
+    setConfirmCars((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const addCarRow = () =>
+    setConfirmCars((rows) => (rows.length >= MAX_CARS ? rows : [...rows, { carId: '', laps: '' }]))
+  const rmCarRow = (i) =>
+    setConfirmCars((rows) => (rows.length <= 1 ? [{ carId: '', laps: '' }] : rows.filter((_, j) => j !== i)))
+
+  const switchMode = (arch) => {
+    setArchive(arch)
+    setDateFilter('all')
+    setFilter(arch ? 'all' : 'pending')
   }
 
   const doExport = async () => {
@@ -127,9 +183,9 @@ export default function Bookings({ onPendingCount }) {
     setExporting(true)
     try {
       await exportBookingsXlsx(shown, {
-        filterLabel: FILTERS.find((f) => f.id === filter)?.label,
+        filterLabel: [archive ? 'Archiwum' : null, FILTERS.find((f) => f.id === filter)?.label].filter(Boolean).join(' · '),
         dateLabel: dateFilter === 'all' ? 'Wszystkie daty' : plDate(dateFilter),
-        dateSlug: dateFilter === 'all' ? 'wszystkie' : dateFilter,
+        dateSlug: (archive ? 'archiwum-' : '') + (dateFilter === 'all' ? 'wszystkie' : dateFilter),
       })
     } catch {
       toast('Nie udało się wygenerować pliku Excel.', 'err')
@@ -141,7 +197,11 @@ export default function Bookings({ onPendingCount }) {
   return (
     <>
       <div className="page-h"><h1>Rezerwacje</h1></div>
-      <p className="sub">Zgłoszenia z kalendarza na stronie. Potwierdzenie lub odrzucenie wysyła klientowi brandowany e-mail.</p>
+      <p className="sub">
+        {archive
+          ? 'Archiwum — rezerwacje z terminów, które już się odbyły. Możesz je filtrować i pobrać jako Excel.'
+          : 'Zgłoszenia z kalendarza na stronie. Potwierdzenie lub odrzucenie wysyła klientowi brandowany e-mail.'}
+      </p>
 
       <div className="tabs">
         {FILTERS.map((f) => (
@@ -149,6 +209,13 @@ export default function Bookings({ onPendingCount }) {
             {f.label} ({counts[f.id]})
           </button>
         ))}
+        <button
+          className={`arch-toggle${archive ? ' on' : ''}`}
+          onClick={() => switchMode(!archive)}
+          title="Rezerwacje z terminów, które już minęły"
+        >
+          Archiwum ({archiveCount})
+        </button>
         {dates.length > 0 && (
           <select
             className={`date-filter${dateFilter !== 'all' ? ' on' : ''}`}
@@ -164,7 +231,7 @@ export default function Bookings({ onPendingCount }) {
         )}
         <button
           className="btn ghost sm"
-          style={{ marginLeft: 'auto' }}
+          style={{ marginLeft: dates.length > 0 ? 0 : 'auto' }}
           onClick={doExport}
           disabled={!shown || !shown.length || exporting}
           title="Pobierz widoczne rezerwacje jako plik Excel"
@@ -180,6 +247,7 @@ export default function Bookings({ onPendingCount }) {
           <b>Brak rezerwacji</b>
           {dateFilter !== 'all'
             ? 'Brak rezerwacji dla wybranej daty — zmień filtr.'
+            : archive ? 'Rezerwacje z minionych terminów pojawią się tutaj automatycznie.'
             : filter === 'pending' ? 'Nowe zgłoszenia pojawią się tutaj automatycznie.' : 'Nic tu jeszcze nie ma.'}
         </div>
       )}
@@ -193,6 +261,7 @@ export default function Bookings({ onPendingCount }) {
                 <span className={`chip ${b.status}`}>
                   {b.status === 'pending' ? 'Oczekuje' : b.status === 'confirmed' ? 'Potwierdzona' : 'Odrzucona'}
                 </span>
+                {archive && <span className="chip archived">Archiwum</span>}
               </div>
               <div className="small" style={{ marginBottom: 4 }}>
                 <a href={`mailto:${b.email}`} style={{ color: 'var(--ink)' }}>{b.email}</a>
@@ -205,8 +274,7 @@ export default function Bookings({ onPendingCount }) {
                 {b.custom_time
                   ? <>, <b style={{ color: 'var(--warn)' }}>{b.custom_time} (godzina indywidualna)</b></>
                   : b.events?.time_text && `, ${b.events.time_text}`}
-                {b.car_name && <> · Samochód: <b style={{ color: 'var(--ink)' }}>{b.car_name}</b></>}
-                {b.laps && <> · Okrążenia: <b style={{ color: 'var(--ink)' }}>{b.laps}</b></>}
+                {carsText(b) && <> · {(b.selected_cars || []).length > 1 ? 'Samochody' : 'Samochód'}: <b style={{ color: 'var(--ink)' }}>{carsText(b)}</b></>}
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>
                 Zgłoszono: {plDateTime(b.created_at)}
@@ -247,31 +315,52 @@ export default function Bookings({ onPendingCount }) {
             <div><span>Termin</span><b>{confirm.events?.title} — {confirm.events?.track && `${confirm.events.track}, `}{plDate(confirm.events?.event_date)}</b></div>
           </div>
           <div className="field" style={{ marginTop: 14 }}>
-            <label>Samochód dla tego klienta</label>
+            <label>Samochody dla tego klienta (max {MAX_CARS})</label>
             {(confirm.available_cars || []).length > 0 ? (
-              <select value={confirmCar} onChange={(e) => setConfirmCar(e.target.value)}>
-                <option value="">— bez wyboru —</option>
-                {(confirm.available_cars || []).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <>
+                {confirmCars.map((row, i) => {
+                  const usedElsewhere = new Set(confirmCars.filter((_, j) => j !== i).map((r) => r.carId).filter(Boolean))
+                  const options = (confirm.available_cars || []).filter((c) => !usedElsewhere.has(c.id))
+                  return (
+                    <div className="car-row" key={i}>
+                      <select value={row.carId} onChange={(e) => setCarRow(i, { carId: e.target.value })}>
+                        <option value="">— bez wyboru —</option>
+                        {options.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        className="laps"
+                        value={row.laps}
+                        onChange={(e) => setCarRow(i, { laps: e.target.value })}
+                        aria-label="Ilość okrążeń"
+                      >
+                        <option value="">— okrążenia —</option>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={n}>{n} okr.</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="car-rm"
+                        onClick={() => rmCarRow(i)}
+                        title="Usuń samochód"
+                        disabled={confirmCars.length <= 1 && !row.carId && !row.laps}
+                      >×</button>
+                    </div>
+                  )
+                })}
+                {confirmCars.length < MAX_CARS && confirmCars.length < (confirm.available_cars || []).length && (
+                  <button type="button" className="btn ghost sm" onClick={addCarRow} style={{ marginTop: 2 }}>
+                    + Dodaj samochód
+                  </button>
+                )}
+              </>
             ) : (
               <div className="hint" style={{ marginTop: 0 }}>Brak samochodów przypisanych do tego terminu — dodaj je w zakładce „Terminy”.</div>
             )}
             <div className="hint">
-              Wybrany samochód trafi do e-maila klienta jako {'{{samochod}}'}.
-            </div>
-          </div>
-          <div className="field" style={{ marginTop: 14 }}>
-            <label>Ilość okrążeń</label>
-            <select value={confirmLaps} onChange={(e) => setConfirmLaps(e.target.value)}>
-              <option value="">— bez wyboru —</option>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-            <div className="hint">
-              Liczba okrążeń trafi do e-maila klienta jako {'{{okrazenia}}'}.
+              Każdy samochód ma własną ilość okrążeń. Lista trafi do e-maila klienta jako {'{{samochod_linia}}'}.
             </div>
           </div>
           <div className="field" style={{ marginTop: 14 }}>
@@ -287,7 +376,7 @@ export default function Bookings({ onPendingCount }) {
           </div>
           <div className="modal-btns">
             <button className="btn grey" onClick={() => setConfirm(null)}>Anuluj</button>
-            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime, confirmCar, confirmLaps); setConfirm(null) }}>
+            <button className="btn" onClick={() => { decide(confirm, 'confirmed', '', confirmTime, confirmCars.filter((c) => c.carId)); setConfirm(null) }}>
               {confirm.status === 'confirmed' ? 'Zapisz i wyślij e-mail' : 'Potwierdź i wyślij e-mail'}
             </button>
           </div>

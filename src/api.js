@@ -45,15 +45,14 @@ export const api = {
   check: () => call('admin-auth', { action: 'check', token: session.token }),
 
   listBookings: () => call('admin-api', { action: 'listBookings' }),
-  decideBooking: (id, status, note = '', customTime, carId, laps) =>
+  decideBooking: (id, status, note = '', customTime, cars) =>
     call('admin-api', {
       action: 'decideBooking',
       id,
       status,
       note,
       ...(customTime !== undefined ? { customTime } : {}),
-      ...(carId !== undefined ? { carId } : {}),
-      ...(laps !== undefined ? { laps } : {}),
+      ...(cars !== undefined ? { cars } : {}), // [{carId, laps}] max 4
     }),
   deleteBooking: (id) => call('admin-api', { action: 'deleteBooking', id }),
 

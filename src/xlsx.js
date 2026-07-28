@@ -94,6 +94,14 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
   rows.forEach((b, idx) => {
     const ev = b.events || {}
     const r = ws.getRow(5 + idx)
+    // wiele samochodów: każdy w osobnej linii z własną ilością okrążeń; "Okrążenia" = suma
+    const selCars = (b.selected_cars || []).filter((c) => c.name)
+    const carCell = selCars.length
+      ? selCars.map((c) => (c.laps ? `${c.name} — ${c.laps} okr.` : c.name)).join('\n')
+      : b.car_name || ''
+    const lapsTotal = selCars.length
+      ? selCars.reduce((s, c) => s + (c.laps || 0), 0) || ''
+      : b.laps || ''
     const vals = {
       lp: idx + 1,
       name: b.name || '',
@@ -104,8 +112,8 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
       tor: ev.track || '',
       data: ev.event_date ? plDate(ev.event_date) : '',
       godzina: b.custom_time || ev.time_text || '',
-      car: b.car_name || '',
-      laps: b.laps || '',
+      car: carCell,
+      laps: lapsTotal,
       status: STATUS_PL[b.status] || b.status || '',
       created: b.created_at ? plDateTime(b.created_at) : '',
       note: b.admin_note || '',
@@ -114,7 +122,7 @@ export function buildBookingsWorkbook(ExcelJS, rows, meta = {}, logoBuffer = nul
       const cell = r.getCell(i + 1)
       cell.value = vals[c.key]
       cell.font = { name: 'Arial', size: 10, color: { argb: 'FF1A1A1A' } }
-      cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' || c.key === 'laps' ? 'center' : 'left', wrapText: c.key === 'note' || c.key === 'termin' }
+      cell.alignment = { vertical: 'middle', horizontal: c.key === 'lp' || c.key === 'laps' ? 'center' : 'left', wrapText: c.key === 'note' || c.key === 'termin' || c.key === 'car' }
       cell.border = {
         bottom: { style: 'thin', color: { argb: BORDER } },
         right: { style: 'thin', color: { argb: BORDER } },
