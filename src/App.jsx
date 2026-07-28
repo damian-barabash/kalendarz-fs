@@ -3,12 +3,14 @@ import { api, session } from './api.js'
 import { ToastProvider } from './ui.jsx'
 import Login from './pages/Login.jsx'
 import Bookings from './pages/Bookings.jsx'
+import Calendar from './pages/Calendar.jsx'
 import Events from './pages/Events.jsx'
 import Cars from './pages/Cars.jsx'
 import Settings from './pages/Settings.jsx'
 
 const TABS = [
   { id: 'rezerwacje', label: 'Rezerwacje' },
+  { id: 'kalendarz', label: 'Kalendarz' },
   { id: 'terminy', label: 'Terminy' },
   { id: 'samochody', label: 'Samochody' },
   { id: 'ustawienia', label: 'Ustawienia' },
@@ -58,6 +60,7 @@ export default function App() {
       </header>
       <main className="page">
         {tab === 'rezerwacje' && <Bookings onPendingCount={setPendingCount} />}
+        {tab === 'kalendarz' && <Calendar />}
         {tab === 'terminy' && <Events />}
         {tab === 'samochody' && <Cars />}
         {tab === 'ustawienia' && <Settings />}
