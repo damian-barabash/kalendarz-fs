@@ -1,5 +1,7 @@
-// admin-api v7 — panel Fastline Supercars (x-admin-token).
+// admin-api v8 — panel Fastline Supercars (x-admin-token).
 // v7: wiele samochodów na rezerwację (selected_cars jsonb, max 4, każdy z własną ilością okrążeń).
+// v8: zmiana daty rezerwacji — decideBooking przyjmuje `eventId` (przeniesienie na inny termin),
+//     listBookings zwraca `event_options` (wszystkie terminy + ich samochody) dla selecta w panelu.
 import { createClient } from "npm:@supabase/supabase-js@2";
 const supa = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
 const cors = {
@@ -161,31 +163,36 @@ Deno.serve(async (req)=>{
   const action = String(body.action || "");
   // ---------- BOOKINGS ----------
   if (action === "listBookings") {
-    const { data, error } = await supa.from("bookings").select("id, event_id, name, email, phone, voucher_code, status, admin_note, custom_time, car_id, laps, selected_cars, decided_by, decided_at, created_at, events(title, track, event_date, time_text)").order("created_at", {
-      ascending: false
-    });
+    const [{ data, error }, { data: allCars }, { data: ecs }, { data: allEvents }] = await Promise.all([
+      supa.from("bookings").select("id, event_id, name, email, phone, voucher_code, status, admin_note, custom_time, car_id, laps, selected_cars, decided_by, decided_at, created_at, events(title, track, event_date, time_text)").order("created_at", {
+        ascending: false
+      }),
+      supa.from("cars").select("id, name, sort, active"),
+      supa.from("event_cars").select("event_id, car_id"),
+      supa.from("events").select("id, title, track, event_date, time_text, status").order("event_date", {
+        ascending: true
+      })
+    ]);
     if (error) return json({
       error: "db"
     }, 500);
-    // dostępne samochody dla każdego terminu (do wyboru przy potwierdzeniu)
-    const eventIds = [
-      ...new Set((data ?? []).map((b)=>b.event_id))
-    ];
-    const carsByEvent = {};
-    if (eventIds.length) {
-      const { data: ecs } = await supa.from("event_cars").select("event_id, cars(id, name, sort, active)").in("event_id", eventIds);
-      for (const ec of ecs ?? []){
-        if (!ec.cars || ec.cars.active === false) continue;
-        (carsByEvent[ec.event_id] ||= []).push(ec.cars);
-      }
-      for (const k of Object.keys(carsByEvent)){
-        carsByEvent[k].sort((a, z)=>a.sort - z.sort || a.name.localeCompare(z.name));
-      }
-    }
     // nazwy wszystkich samochodów (także nieaktywnych / odpiętych od terminu)
-    const { data: allCars } = await supa.from("cars").select("id, name");
+    const carById = {};
     const nameById = {};
-    for (const c of allCars ?? [])nameById[c.id] = c.name;
+    for (const c of allCars ?? []){
+      carById[c.id] = c;
+      nameById[c.id] = c.name;
+    }
+    // dostępne samochody dla każdego terminu (do wyboru przy potwierdzeniu / zmianie daty)
+    const carsByEvent = {};
+    for (const ec of ecs ?? []){
+      const c = carById[ec.car_id];
+      if (!c || c.active === false) continue;
+      (carsByEvent[ec.event_id] ||= []).push(c);
+    }
+    for (const k of Object.keys(carsByEvent)){
+      carsByEvent[k].sort((a, z)=>a.sort - z.sort || a.name.localeCompare(z.name));
+    }
     const bookings = (data ?? []).map((b)=>{
       const sel = rawCarsOf(b).map((x)=>({
           car_id: x.car_id,
@@ -202,9 +209,23 @@ Deno.serve(async (req)=>{
           }))
       };
     });
+    // wszystkie terminy + ich samochody — do zmiany daty rezerwacji w panelu
+    const event_options = (allEvents ?? []).map((e)=>({
+        id: e.id,
+        title: e.title,
+        track: e.track,
+        event_date: e.event_date,
+        time_text: e.time_text,
+        status: e.status,
+        cars: (carsByEvent[e.id] || []).map((c)=>({
+            id: c.id,
+            name: c.name
+          }))
+      }));
     return json({
       ok: true,
-      bookings
+      bookings,
+      event_options
     });
   }
   if (action === "decideBooking") {
@@ -216,11 +237,21 @@ Deno.serve(async (req)=>{
         error: "validation"
       }, 400);
     }
-    const { data: bk } = await supa.from("bookings").select("id, name, email, status, custom_time, car_id, laps, selected_cars, events(title, track, event_date, time_text)").eq("id", id).maybeSingle();
+    const { data: bk } = await supa.from("bookings").select("id, event_id, name, email, status, custom_time, car_id, laps, selected_cars, events(title, track, event_date, time_text)").eq("id", id).maybeSingle();
     if (!bk) return json({
       error: "not_found"
     }, 404);
-    const ev = bk.events || {};
+    // zmiana daty = przeniesienie rezerwacji na inny termin; brak eventId = bez zmian
+    let ev = bk.events || {};
+    let newEventId = null;
+    if (body.eventId !== undefined && body.eventId && String(body.eventId) !== String(bk.event_id)) {
+      const { data: nev } = await supa.from("events").select("id, title, track, event_date, time_text").eq("id", String(body.eventId)).maybeSingle();
+      if (!nev) return json({
+        error: "event_not_found"
+      }, 404);
+      newEventId = nev.id;
+      ev = nev;
+    }
     // godzina indywidualna: undefined = bez zmian, "" = wyczyść (wraca godzina terminu)
     let customTime = undefined;
     if (body.customTime !== undefined) {
@@ -262,6 +293,7 @@ Deno.serve(async (req)=>{
       decided_by: adminLogin,
       decided_at: new Date().toISOString()
     };
+    if (newEventId) update.event_id = newEventId;
     if (customTime !== undefined) update.custom_time = customTime;
     if (cars !== undefined) {
       update.selected_cars = cars.length ? cars : null;
